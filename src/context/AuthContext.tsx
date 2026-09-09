@@ -70,15 +70,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (loginName: string, password?: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await loginApi(loginName, password);
-      if (res.success && res.user && res.token) {
+      if (res.success && res.user) {
         setUser(res.user);
         localStorage.setItem('auth_user', JSON.stringify(res.user));
         localStorage.setItem('auth_user_id', res.user.id);
         localStorage.setItem('auth_user_login', res.user.login);
+        if (res.token) {
+          setAuthToken(res.token);
+        }
         await syncWithServer().catch(() => {});
         return { success: true };
       }
-      return { success: false, error: 'Ошибка входа' };
+      return { success: false, error: 'Неверный логин или пароль' };
     } catch (err: any) {
       return { success: false, error: err.message || 'Ошибка авторизации' };
     }
