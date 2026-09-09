@@ -1,0 +1,16 @@
+{
+  "name": "AirCondition CRM",
+  "short_name": "AC CRM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0ea5e9",
+  "description": "CRM система для сервиса кондиционеров",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
