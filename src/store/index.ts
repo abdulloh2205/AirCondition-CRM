@@ -17,7 +17,8 @@ import {
   createUserApi,
   updateUserApi,
   deleteUserApi,
-  resetDatabaseApi
+  resetDatabaseApi,
+  getAuthToken
 } from '../services/api';
 import { Role } from '../types';
 
@@ -35,22 +36,14 @@ const defaultData: StorageData = {
   clients: [],
   requests: [],
   tasks: [],
-  users: [
-    { id: 'u1', login: 'boss', password: '123', role: 'boss' },
-    { id: 'u2', login: 'manager1', password: '123', role: 'manager' },
-    { id: 'u3', login: 'manager2', password: '123', role: 'manager' },
-  ],
+  users: [],
 };
 
 let memoryStore: StorageData = (() => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return defaultData;
   try {
-    const parsed = JSON.parse(raw) as StorageData;
-    if (!parsed.users || parsed.users.length === 0) {
-      parsed.users = defaultData.users;
-    }
-    return parsed;
+    return JSON.parse(raw) as StorageData;
   } catch {
     return defaultData;
   }
@@ -70,8 +63,14 @@ export const saveStorageData = (data: StorageData) => {
   notifyStoreChange();
 };
 
-/** Initialize store and sync with SQLite backend */
+/** Initialize store and sync with SQLite backend ONLY if user is authenticated */
 export const initStoreFromServer = async () => {
+  const token = getAuthToken();
+  if (!token) {
+    // Do not call protected endpoints if unauthenticated!
+    return;
+  }
+
   try {
     const [clients, requests, tasks, users] = await Promise.all([
       getClientsApi().catch(() => null),
@@ -107,11 +106,6 @@ export const initStoreFromServer = async () => {
     console.warn('[CRM] Could not connect to SQLite backend, using local store:', err);
   }
 };
-
-// Automatically sync on startup
-if (typeof window !== 'undefined') {
-  initStoreFromServer();
-}
 
 export const syncWithServer = initStoreFromServer;
 
