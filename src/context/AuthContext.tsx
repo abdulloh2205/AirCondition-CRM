@@ -1,50 +1,91 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
-import { getUserByLogin } from '../store';
+import { loginApi, setAuthToken, getAuthToken, getMeApi } from '../services/api';
+import { syncWithServer, clearStoreOnLogout } from '../store';
 
 interface AuthContextType {
   user: User | null;
-  login: (loginName: string, password?: string) => boolean;
+  loading: boolean;
+  login: (loginName: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-
-  useEffect(() => {
-    const savedUserId = localStorage.getItem('auth_user_id');
-    if (savedUserId) {
-      // In a real app we'd fetch by ID, but since our store has getUserByLogin we can just fetch all users or adjust
-      // Let's just store the login string for simplicity
-      const savedLogin = localStorage.getItem('auth_user_login');
-      if (savedLogin) {
-        const u = getUserByLogin(savedLogin);
-        if (u) setUser(u);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('auth_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
       }
     }
-  }, []);
-
-  const login = (loginName: string, password?: string) => {
-    const u = getUserByLogin(loginName);
-    if (u && (!u.password || u.password === password)) {
-      setUser(u);
-      localStorage.setItem('auth_user_id', u.id);
-      localStorage.setItem('auth_user_login', u.login);
-      return true;
-    }
-    return false;
-  };
+    return null;
+  });
+  const [loading, setLoading] = useState(true);
 
   const logout = () => {
     setUser(null);
+    setAuthToken(null);
+    localStorage.removeItem('auth_user');
     localStorage.removeItem('auth_user_id');
     localStorage.removeItem('auth_user_login');
+    clearStoreOnLogout();
+  };
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token) {
+      getMeApi()
+        .then(res => {
+          if (res && res.user) {
+            setUser(res.user);
+            localStorage.setItem('auth_user', JSON.stringify(res.user));
+            localStorage.setItem('auth_user_id', res.user.id);
+            localStorage.setItem('auth_user_login', res.user.login);
+            syncWithServer().catch(() => {});
+          } else {
+            logout();
+          }
+        })
+        .catch(() => {
+          logout();
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
+      setLoading(false);
+    }
+
+    const handleUnauthorized = () => {
+      logout();
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, []);
+
+  const login = async (loginName: string, password?: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await loginApi(loginName, password);
+      if (res.success && res.user && res.token) {
+        setUser(res.user);
+        localStorage.setItem('auth_user', JSON.stringify(res.user));
+        localStorage.setItem('auth_user_id', res.user.id);
+        localStorage.setItem('auth_user_login', res.user.login);
+        await syncWithServer().catch(() => {});
+        return { success: true };
+      }
+      return { success: false, error: 'Ошибка входа' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Ошибка авторизации' };
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

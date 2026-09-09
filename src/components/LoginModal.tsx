@@ -2,11 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-
-const ROLES = [
-  { id: 'boss', login: 'boss', password: '123', emoji: '👔', label: 'Руководитель', labelUz: 'Rahbar' },
-  { id: 'manager', login: 'manager1', password: '123', emoji: '👷', label: 'Менеджер', labelUz: 'Menejer' },
-];
+import { Lock, User as UserIcon, Eye, EyeOff } from 'lucide-react';
 
 interface Props {
   onClose: () => void;
@@ -17,7 +13,6 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
   const { lang } = useLanguage();
   const navigate = useNavigate();
 
-  const [selectedRole, setSelectedRole] = useState<'boss' | 'manager' | null>(null);
   const [loginVal, setLoginVal] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -33,29 +28,18 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleClose();
-      if (e.key === 'Enter') handleLogin();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [loginVal, password, selectedRole]);
+  }, []);
 
   const handleClose = () => {
     setVisible(false);
     setTimeout(onClose, 280);
   };
 
-  const handleRoleSelect = (role: 'boss' | 'manager') => {
-    setSelectedRole(role);
-    const r = ROLES.find(r => r.id === role)!;
-    setLoginVal(r.login);
-    setError('');
-  };
-
-  const handleLogin = () => {
-    if (!selectedRole) {
-      setError(lang === 'ru' ? 'Выберите роль' : 'Rolni tanlang');
-      return;
-    }
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!loginVal.trim()) {
       setError(lang === 'ru' ? 'Введите логин' : 'Login kiriting');
       return;
@@ -65,11 +49,13 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
       return;
     }
     setLoading(true);
-    const ok = login(loginVal.trim(), password);
-    if (ok) {
+    setError('');
+
+    const res = await login(loginVal.trim(), password);
+    if (res.success) {
       navigate('/crm/clients', { replace: true });
     } else {
-      setError(lang === 'ru' ? 'Неверный логин или пароль' : "Noto'g'ri login yoki parol");
+      setError(res.error || (lang === 'ru' ? 'Неверный логин или пароль' : "Noto'g'ri login yoki parol"));
       setLoading(false);
     }
   };
@@ -125,92 +111,42 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
           >✕</button>
         </div>
 
-        <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-          {/* ── Role selection ── */}
-          <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {t('Кто вы?', 'Siz kimsiz?')}
-            </label>
-            <div style={{ display: 'flex', gap: '0.6rem' }}>
-              {ROLES.map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => handleRoleSelect(r.id as 'boss' | 'manager')}
-                  style={{
-                    flex: 1, display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', justifyContent: 'center',
-                    gap: '0.35rem', padding: '0.875rem 0.5rem',
-                    borderRadius: 'var(--radius-md)',
-                    border: `2px solid ${selectedRole === r.id ? 'var(--color-primary)' : 'var(--border-color)'}`,
-                    background: selectedRole === r.id ? 'var(--color-primary-light)' : 'var(--bg-base)',
-                    cursor: 'pointer', transition: 'all 0.18s ease',
-                  }}
-                >
-                  <span style={{ fontSize: '1.75rem', lineHeight: 1 }}>{r.emoji}</span>
-                  <span style={{
-                    fontSize: '0.8rem', fontWeight: 700, lineHeight: 1.2,
-                    color: selectedRole === r.id ? 'var(--color-primary)' : 'var(--text-body)',
-                  }}>
-                    {lang === 'ru' ? r.label : r.labelUz}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
+        <form onSubmit={handleLogin} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
           {/* ── Login field ── */}
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>
               {t('Логин', 'Login')}
             </label>
-            <input
-              type="text"
-              value={loginVal}
-              onChange={e => { setLoginVal(e.target.value); setError(''); }}
-              placeholder={t('Введите логин', 'Login kiriting')}
-              autoComplete="username"
-              style={{
-                width: '100%', padding: '0.75rem 1rem',
-                border: `1.5px solid ${error && !loginVal ? 'var(--color-danger)' : 'var(--border-color)'}`,
-                borderRadius: 'var(--radius-md)',
-                background: 'var(--bg-base)',
-                color: 'var(--text-body)',
-                fontSize: '0.9rem',
-                outline: 'none',
-                boxSizing: 'border-box',
-                transition: 'border-color 0.18s',
-              }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
-              onBlur={e => (e.currentTarget.style.borderColor = error && !loginVal ? 'var(--color-danger)' : 'var(--border-color)')}
-            />
+            <div style={{ position: 'relative' }}>
+              <UserIcon size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                value={loginVal}
+                onChange={e => { setLoginVal(e.target.value); setError(''); }}
+                placeholder={t('Введите логин', 'Login kiriting')}
+                autoComplete="username"
+                autoFocus
+                className="input-field"
+                style={{ width: '100%', paddingLeft: '2.5rem' }}
+              />
+            </div>
           </div>
 
           {/* ── Password field ── */}
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>
               {t('Пароль', 'Parol')}
             </label>
             <div style={{ position: 'relative' }}>
+              <Lock size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type={showPass ? 'text' : 'password'}
                 value={password}
                 onChange={e => { setPassword(e.target.value); setError(''); }}
                 placeholder={t('Введите пароль', 'Parol kiriting')}
                 autoComplete="current-password"
-                style={{
-                  width: '100%', padding: '0.75rem 2.75rem 0.75rem 1rem',
-                  border: `1.5px solid ${error && !password ? 'var(--color-danger)' : 'var(--border-color)'}`,
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-base)',
-                  color: 'var(--text-body)',
-                  fontSize: '0.9rem',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.18s',
-                }}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
-                onBlur={e => (e.currentTarget.style.borderColor = error && !password ? 'var(--color-danger)' : 'var(--border-color)')}
+                className="input-field"
+                style={{ width: '100%', paddingLeft: '2.5rem', paddingRight: '2.5rem' }}
               />
               <button
                 type="button"
@@ -219,11 +155,11 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
                   position: 'absolute', right: '0.75rem', top: '50%',
                   transform: 'translateY(-50%)',
                   background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: '1rem', color: 'var(--text-muted)', padding: 0,
+                  color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: 0,
                 }}
                 tabIndex={-1}
               >
-                {showPass ? '🙈' : '👁️'}
+                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
@@ -235,52 +171,33 @@ export const LoginModal: React.FC<Props> = ({ onClose }) => {
               border: '1px solid rgba(220,50,50,0.3)',
               borderRadius: 'var(--radius-md)',
               padding: '0.6rem 0.875rem',
-              fontSize: '0.82rem', color: '#c0392b',
+              fontSize: '0.82rem', color: 'var(--color-danger)',
               display: 'flex', alignItems: 'center', gap: '0.5rem',
-              animation: 'slideUp 180ms ease',
             }}>
               ⚠️ {error}
             </div>
           )}
 
           {/* ── Buttons ── */}
-          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
             <button
+              type="button"
               onClick={handleClose}
-              style={{
-                flex: 1, padding: '0.75rem',
-                borderRadius: 'var(--radius-md)',
-                border: '1.5px solid var(--border-color)',
-                background: 'transparent',
-                color: 'var(--text-body)', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer',
-              }}
+              className="btn btn-outline"
+              style={{ flex: 1, justifyContent: 'center' }}
             >
               {t('Отмена', 'Bekor qilish')}
             </button>
             <button
-              onClick={handleLogin}
+              type="submit"
               disabled={loading}
-              style={{
-                flex: 2, padding: '0.75rem',
-                borderRadius: 'var(--radius-md)',
-                border: 'none',
-                background: 'var(--color-primary)',
-                color: 'white', fontWeight: 700, fontSize: '0.9rem',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
-                transition: 'opacity 0.18s',
-              }}
+              className="btn btn-primary"
+              style={{ flex: 2, justifyContent: 'center' }}
             >
               {loading ? '...' : t('Войти', 'Kirish')}
             </button>
           </div>
-
-          {/* ── Hint ── */}
-          <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-            {t('Демо: логин boss / manager1, пароль 123', "Demo: login boss / manager1, parol 123")}
-          </p>
-
-        </div>
+        </form>
       </div>
     </div>
   );

@@ -3,50 +3,49 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useTheme } from '../context/ThemeContext';
-
-const ROLES = [
-  { login: 'boss', password: '123', emoji: '👔', label: 'Boss', labelUz: 'Boss', desc: 'Полный доступ', descUz: 'To\'liq kirish' },
-  { login: 'manager1', password: '123', emoji: '👷', label: 'Менеджер 1', labelUz: 'Menejer 1', desc: 'Свои заявки', descUz: 'O\'z arizalari' },
-  { login: 'manager2', password: '123', emoji: '🧑‍🔧', label: 'Менеджер 2', labelUz: 'Menejer 2', desc: 'Свои заявки', descUz: 'O\'z arizalari' },
-];
+import { Lock, User as UserIcon, Eye, EyeOff, ArrowRight } from 'lucide-react';
 
 export const Login = () => {
   const { login } = useAuth();
-  const { t, lang, setLang } = useLanguage();
+  const { lang, setLang } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
-  const [selected, setSelected] = useState<number | null>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSelect = (idx: number) => {
-    setSelected(idx);
-    setError('');
-  };
-
-  const handleLogin = async () => {
-    if (selected === null) {
-      setError(lang === 'ru' ? 'Выберите роль для входа' : 'Kirish uchun rolni tanlang');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim()) {
+      setError(lang === 'ru' ? 'Введите логин' : 'Loginni kiriting');
       return;
     }
+    if (!password) {
+      setError(lang === 'ru' ? 'Введите пароль' : 'Parolni kiriting');
+      return;
+    }
+
     setLoading(true);
-    const role = ROLES[selected];
-    const ok = login(role.login, role.password);
-    if (ok) {
+    setError('');
+
+    const res = await login(username.trim(), password);
+    if (res.success) {
       navigate('/crm/clients', { replace: true });
     } else {
-      setError(t('loginError'));
+      setError(res.error || (lang === 'ru' ? 'Неверный логин или пароль' : "Noto'g'ri login yoki parol"));
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="login-page">
-      <div className="login-card">
-        <div className="card">
+      <div className="login-card" style={{ maxWidth: '440px', width: '100%' }}>
+        <div className="card" style={{ padding: '2rem' }}>
           {/* Top row: back to landing + theme + lang */}
-          <div className="login-header-row">
+          <div className="login-header-row" style={{ marginBottom: '1.5rem' }}>
             <Link to="/" className="btn btn-ghost" style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
               ← {lang === 'ru' ? 'На главную' : 'Bosh sahifaga'}
             </Link>
@@ -64,78 +63,102 @@ export const Login = () => {
             </div>
           </div>
 
-          {/* Logo */}
+          {/* Header */}
           <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>❄️</div>
+            <div style={{ fontSize: '2.75rem', marginBottom: '0.5rem' }}>❄️</div>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-heading)', marginBottom: '0.35rem' }}>
               {lang === 'ru' ? 'Вход в систему' : 'Tizimga kirish'}
             </h2>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              {lang === 'ru' ? 'Выберите свою роль' : 'Rolingizni tanlang'}
+              {lang === 'ru' ? 'Авторизуйтесь для доступа к CRM' : 'CRM ga kirish uchun avtorizatsiyadan o\'ting'}
             </p>
           </div>
 
-          {/* Role cards */}
-          <div className="role-cards">
-            {ROLES.map((r, idx) => (
-              <div
-                key={r.login}
-                className={`role-card ${selected === idx ? 'selected' : ''}`}
-                onClick={() => handleSelect(idx)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && handleSelect(idx)}
-              >
-                <div className="role-emoji">{r.emoji}</div>
-                <div className="role-name">{lang === 'ru' ? r.label : r.labelUz}</div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  {lang === 'ru' ? r.desc : r.descUz}
-                </div>
+          {/* Form */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+            {/* Username */}
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>
+                {lang === 'ru' ? 'Логин' : 'Login'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <UserIcon size={18} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="input-field"
+                  style={{ paddingLeft: '2.6rem', width: '100%' }}
+                  placeholder={lang === 'ru' ? 'Ваш логин' : 'Sizning loginingiz'}
+                  value={username}
+                  onChange={e => { setUsername(e.target.value); setError(''); }}
+                  autoComplete="username"
+                  autoFocus
+                />
               </div>
-            ))}
-          </div>
-
-          {/* Password hint */}
-          {selected !== null && (
-            <div style={{
-              background: 'var(--color-primary-light)',
-              border: '1px solid rgba(200, 132, 42, 0.25)',
-              borderRadius: 'var(--radius-md)',
-              padding: '0.75rem 1rem',
-              marginBottom: '1rem',
-              fontSize: '0.85rem',
-              color: 'var(--color-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}>
-              🔑 {lang === 'ru' ? 'Пароль:' : 'Parol:'} <strong>123</strong>
-              &nbsp;·&nbsp;
-              <span style={{ color: 'var(--text-muted)' }}>{lang === 'ru' ? ROLES[selected].label : ROLES[selected].labelUz}</span>
             </div>
-          )}
 
-          {/* Error */}
-          {error && (
-            <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginBottom: '1rem', textAlign: 'center' }}>
-              {error}
+            {/* Password */}
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>
+                {lang === 'ru' ? 'Пароль' : 'Parol'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={18} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="input-field"
+                  style={{ paddingLeft: '2.6rem', paddingRight: '2.6rem', width: '100%' }}
+                  placeholder={lang === 'ru' ? 'Ваш пароль' : 'Sizning parolingiz'}
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setError(''); }}
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{
+                    position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+                    display: 'flex', alignItems: 'center', padding: 0
+                  }}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
-          )}
 
-          {/* Login button */}
-          <button
-            className="btn btn-primary btn-lg"
-            style={{ width: '100%', justifyContent: 'center' }}
-            onClick={handleLogin}
-            disabled={loading}
-          >
-            {loading ? '...' : (lang === 'ru' ? 'Войти' : 'Kirish')}
-          </button>
+            {/* Error banner */}
+            {error && (
+              <div style={{
+                background: 'rgba(220, 50, 50, 0.1)',
+                border: '1px solid rgba(220, 50, 50, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.75rem 1rem',
+                fontSize: '0.85rem',
+                color: 'var(--color-danger)',
+                textAlign: 'center',
+                animation: 'fadeIn 0.2s ease'
+              }}>
+                {error}
+              </div>
+            )}
 
-          <p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            {/* Submit */}
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg"
+              style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', gap: '0.5rem' }}
+              disabled={loading}
+            >
+              <span>{loading ? (lang === 'ru' ? 'Проверка...' : 'Tekshirilmoqda...') : (lang === 'ru' ? 'Войти в CRM' : 'CRM ga kirish')}</span>
+              {!loading && <ArrowRight size={18} />}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             {lang === 'ru'
-              ? 'Войдите чтобы управлять заявками, клиентами и задачами'
-              : 'Arizalar, mijozlar va vazifalarni boshqarish uchun kiring'}
+              ? 'Безопасное соединение с шифрованием данных'
+              : 'Ma\'lumotlarni shifrlash bilan xavfsiz ulanish'}
           </p>
         </div>
       </div>

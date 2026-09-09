@@ -12,8 +12,8 @@ interface Translations {
 // Basic translations dictionary
 export const dict: Translations = {
   loginTitle: { ru: 'Вход в CRM', uz: 'CRM ga kirish' },
-  loginPlaceholder: { ru: 'Введите логин (boss или manager1)', uz: 'Loginni kiriting (boss yoki manager1)' },
-  passwordPlaceholder: { ru: 'Пароль (123)', uz: 'Parol (123)' },
+  loginPlaceholder: { ru: 'Введите логин', uz: 'Loginni kiriting' },
+  passwordPlaceholder: { ru: 'Введите пароль', uz: 'Parolni kiriting' },
   loginBtn: { ru: 'Войти', uz: 'Kirish' },
   loginError: { ru: 'Неверный логин', uz: 'Noto\'g\'ri login' },
   clients: { ru: 'Клиенты', uz: 'Mijozlar' },

@@ -7,16 +7,37 @@ const API_BASE =
     ? 'http://localhost:5000/api'
     : '/api');
 
+export function getAuthToken(): string | null {
+  return typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+}
+
+export function setAuthToken(token: string | null): void {
+  if (typeof localStorage !== 'undefined') {
+    if (token) localStorage.setItem('auth_token', token);
+    else localStorage.removeItem('auth_token');
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = getAuthToken();
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE}${url}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders,
       ...options?.headers,
     },
     ...options,
   });
 
   if (!res.ok) {
+    if (res.status === 401 && !url.includes('/auth/login')) {
+      setAuthToken(null);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && window.location.pathname !== '/') {
+        window.dispatchEvent(new Event('auth:unauthorized'));
+      }
+    }
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.error || `HTTP error ${res.status}`);
   }
@@ -25,11 +46,19 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 // ==================== AUTH & USERS ====================
-export async function loginApi(login: string, password?: string): Promise<{ success: boolean; user: User }> {
-  return request<{ success: boolean; user: User }>('/auth/login', {
+export async function loginApi(login: string, password?: string): Promise<{ success: boolean; user: User; token: string }> {
+  const data = await request<{ success: boolean; user: User; token: string }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ login, password }),
   });
+  if (data.token) {
+    setAuthToken(data.token);
+  }
+  return data;
+}
+
+export async function getMeApi(): Promise<{ user: User }> {
+  return request<{ user: User }>('/auth/me');
 }
 
 export async function getUsersApi(): Promise<User[]> {

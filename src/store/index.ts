@@ -113,9 +113,21 @@ if (typeof window !== 'undefined') {
   initStoreFromServer();
 }
 
+export const syncWithServer = initStoreFromServer;
+
+export const clearStoreOnLogout = () => {
+  memoryStore = {
+    clients: [],
+    requests: [],
+    tasks: [],
+    users: [],
+  };
+  localStorage.removeItem(STORAGE_KEY);
+  notifyStoreChange();
+};
+
 /** Seed realistic demo data if not already seeded */
 export const seedDemoData = () => {
-  // Sync with server if possible
   initStoreFromServer();
 };
 

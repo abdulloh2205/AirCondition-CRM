@@ -26,7 +26,82 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// ==================== AUTH & USERS ====================
+// ==================== AUTH & SECURITY (JWT) ====================
+const JWT_SECRET = process.env.JWT_SECRET || 'crm-secret-aircondition-super-secure-key-2026';
+
+function base64UrlEncode(str) {
+  return Buffer.from(str).toString('base64url');
+}
+
+function base64UrlDecode(str) {
+  return Buffer.from(str, 'base64url').toString('utf-8');
+}
+
+function generateToken(payload) {
+  const header = JSON.stringify({ alg: 'HS256', typ: 'JWT' });
+  const fullPayload = JSON.stringify({
+    ...payload,
+    exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days expiration
+  });
+
+  const encodedHeader = base64UrlEncode(header);
+  const encodedPayload = base64UrlEncode(fullPayload);
+  const signature = crypto
+    .createHmac('sha256', JWT_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const expectedSig = crypto
+    .createHmac('sha256', JWT_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+
+  if (signature !== expectedSig) return null;
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedPayload));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Требуется авторизация (токен не передан)' });
+  }
+
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+  const user = verifyToken(token);
+  if (!user) {
+    return res.status(401).json({ error: 'Недействительный или просроченный токен' });
+  }
+
+  req.user = user;
+  next();
+}
+
+function requireBoss(req, res, next) {
+  if (!req.user || req.user.role !== 'boss') {
+    return res.status(403).json({ error: 'Доступ разрешен только руководителю' });
+  }
+  next();
+}
+
+// ==================== AUTH ROUTES ====================
 app.post('/api/auth/login', (req, res) => {
   const { login, password } = req.body;
   if (!login) return res.status(400).json({ error: 'Логин обязателен' });
@@ -41,15 +116,28 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const { password: _, ...safeUser } = user;
-  res.json({ success: true, user: safeUser });
+  const token = generateToken(safeUser);
+  res.json({ success: true, user: safeUser, token });
 });
 
-app.get('/api/users', (req, res) => {
-  const users = db.prepare('SELECT id, login, role, name FROM users').all();
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  const user = db.prepare('SELECT id, login, role, name FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  res.json({ user });
+});
+
+// ==================== USERS (RBAC) ====================
+app.get('/api/users', authenticateToken, (req, res) => {
+  if (req.user.role === 'boss') {
+    const users = db.prepare('SELECT id, login, role, name FROM users').all();
+    return res.json(users);
+  }
+  // For managers: return team member names & roles for assignment, omitting sensitive info
+  const users = db.prepare('SELECT id, name, role FROM users').all();
   res.json(users);
 });
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', authenticateToken, requireBoss, (req, res) => {
   const { login, password = '123', role = 'manager', name = '' } = req.body;
   if (!login) return res.status(400).json({ error: 'Логин обязателен' });
 
@@ -68,7 +156,7 @@ app.post('/api/users', (req, res) => {
   res.status(201).json(created);
 });
 
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', authenticateToken, requireBoss, (req, res) => {
   const { id } = req.params;
   const current = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!current) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -88,7 +176,7 @@ app.put('/api/users/:id', (req, res) => {
   res.json(updated);
 });
 
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireBoss, (req, res) => {
   const { id } = req.params;
   if (id === 'u1') {
     return res.status(400).json({ error: 'Главного администратора (boss) нельзя удалить' });
@@ -98,12 +186,12 @@ app.delete('/api/users/:id', (req, res) => {
 });
 
 // ==================== CLIENTS ====================
-app.get('/api/clients', (req, res) => {
+app.get('/api/clients', authenticateToken, (req, res) => {
   const clients = db.prepare('SELECT * FROM clients ORDER BY created_at DESC').all();
   res.json(clients);
 });
 
-app.post('/api/clients', (req, res) => {
+app.post('/api/clients', authenticateToken, (req, res) => {
   const { name, phone, address = '', comment = '' } = req.body;
   if (!name || !phone) {
     return res.status(400).json({ error: 'Имя и телефон обязательны для заполнения' });
@@ -132,7 +220,7 @@ app.post('/api/clients', (req, res) => {
   res.status(201).json(newClient);
 });
 
-app.put('/api/clients/:id', (req, res) => {
+app.put('/api/clients/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const { name, phone, address = '', comment = '' } = req.body;
 
@@ -162,13 +250,13 @@ app.put('/api/clients/:id', (req, res) => {
   res.json({ id, ...updated, created_at: current.created_at });
 });
 
-app.delete('/api/clients/:id', (req, res) => {
+app.delete('/api/clients/:id', authenticateToken, requireBoss, (req, res) => {
   const { id } = req.params;
   db.prepare('DELETE FROM clients WHERE id = ?').run(id);
   res.json({ success: true, id });
 });
 
-// ==================== REQUESTS ====================
+// ==================== REQUESTS (OWNER & RBAC) ====================
 function parseRequestRow(row) {
   if (!row) return null;
   let history = [];
@@ -188,8 +276,14 @@ function parseRequestRow(row) {
   };
 }
 
-app.get('/api/requests', (req, res) => {
-  const rows = db.prepare('SELECT * FROM requests ORDER BY createdAt DESC').all();
+app.get('/api/requests', authenticateToken, (req, res) => {
+  let rows;
+  if (req.user.role === 'boss') {
+    rows = db.prepare('SELECT * FROM requests ORDER BY createdAt DESC').all();
+  } else {
+    // Manager only sees their own assigned requests
+    rows = db.prepare('SELECT * FROM requests WHERE managerId = ? ORDER BY createdAt DESC').all(req.user.id);
+  }
   res.json(rows.map(parseRequestRow));
 });
 
@@ -203,7 +297,7 @@ function generateRequestNumber() {
   return `REQ-${String(max + 1).padStart(4, '0')}`;
 }
 
-app.post('/api/requests', (req, res) => {
+app.post('/api/requests', authenticateToken, (req, res) => {
   const {
     clientId,
     service,
@@ -219,7 +313,10 @@ app.post('/api/requests', (req, res) => {
     needLift = false,
   } = req.body;
 
-  if (!clientId || !service || !managerId) {
+  // Non-boss can only assign requests to themselves
+  const assignedManagerId = req.user.role === 'boss' ? (managerId || req.user.id) : req.user.id;
+
+  if (!clientId || !service || !assignedManagerId) {
     return res.status(400).json({ error: 'Заполните обязательные поля (клиент, услуга, менеджер)' });
   }
 
@@ -236,7 +333,7 @@ app.post('/api/requests', (req, res) => {
     service,
     description,
     Number(amount) || 0,
-    managerId,
+    assignedManagerId,
     status,
     createdAt,
     cancelReason,
@@ -252,10 +349,15 @@ app.post('/api/requests', (req, res) => {
   res.status(201).json(parseRequestRow(created));
 });
 
-app.put('/api/requests/:id', (req, res) => {
+app.put('/api/requests/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const current = db.prepare('SELECT * FROM requests WHERE id = ?').get(id);
   if (!current) return res.status(404).json({ error: 'Заявка не найдена' });
+
+  // RBAC: Manager can only update their own requests
+  if (req.user.role !== 'boss' && current.managerId !== req.user.id) {
+    return res.status(403).json({ error: 'У вас нет прав на редактирование чужой заявки' });
+  }
 
   const {
     clientId,
@@ -279,7 +381,6 @@ app.put('/api/requests/:id', (req, res) => {
     history = [];
   }
 
-  // Record status change in history
   if (status && status !== current.status) {
     history.push({
       date: Date.now(),
@@ -292,7 +393,7 @@ app.put('/api/requests/:id', (req, res) => {
     service: service !== undefined ? service : current.service,
     description: description !== undefined ? description : current.description,
     amount: amount !== undefined ? Number(amount) : current.amount,
-    managerId: managerId !== undefined ? managerId : current.managerId,
+    managerId: req.user.role === 'boss' ? (managerId !== undefined ? managerId : current.managerId) : current.managerId,
     status: status !== undefined ? status : current.status,
     cancelReason: cancelReason !== undefined ? cancelReason : current.cancelReason,
     brand: brand !== undefined ? brand : current.brand,
@@ -328,14 +429,14 @@ app.put('/api/requests/:id', (req, res) => {
   res.json(parseRequestRow(row));
 });
 
-app.delete('/api/requests/:id', (req, res) => {
+app.delete('/api/requests/:id', authenticateToken, requireBoss, (req, res) => {
   const { id } = req.params;
   db.prepare('DELETE FROM tasks WHERE requestId = ?').run(id);
   db.prepare('DELETE FROM requests WHERE id = ?').run(id);
   res.json({ success: true, id });
 });
 
-// ==================== TASKS ====================
+// ==================== TASKS (OWNER & RBAC) ====================
 function parseTaskRow(row) {
   if (!row) return null;
   return {
@@ -344,38 +445,50 @@ function parseTaskRow(row) {
   };
 }
 
-app.get('/api/tasks', (req, res) => {
-  const rows = db.prepare('SELECT * FROM tasks ORDER BY dueDate ASC').all();
+app.get('/api/tasks', authenticateToken, (req, res) => {
+  let rows;
+  if (req.user.role === 'boss') {
+    rows = db.prepare('SELECT * FROM tasks ORDER BY dueDate ASC').all();
+  } else {
+    // Manager only gets tasks assigned to them
+    rows = db.prepare('SELECT * FROM tasks WHERE assigneeId = ? ORDER BY dueDate ASC').all(req.user.id);
+  }
   res.json(rows.map(parseTaskRow));
 });
 
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', authenticateToken, (req, res) => {
   const { requestId, title, dueDate, assigneeId, isDone = false } = req.body;
-  if (!requestId || !title || !dueDate || !assigneeId) {
+  if (!requestId || !title || !dueDate) {
     return res.status(400).json({ error: 'Все поля задачи обязательны' });
   }
+
+  const assignedId = req.user.role === 'boss' ? (assigneeId || req.user.id) : req.user.id;
 
   const id = crypto.randomUUID();
   db.prepare(`
     INSERT INTO tasks (id, requestId, title, dueDate, assigneeId, isDone)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, requestId, title.trim(), Number(dueDate), assigneeId, isDone ? 1 : 0);
+  `).run(id, requestId, title.trim(), Number(dueDate), assignedId, isDone ? 1 : 0);
 
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   res.status(201).json(parseTaskRow(row));
 });
 
-app.put('/api/tasks/:id', (req, res) => {
+app.put('/api/tasks/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!current) return res.status(404).json({ error: 'Задача не найдена' });
+
+  if (req.user.role !== 'boss' && current.assigneeId !== req.user.id) {
+    return res.status(403).json({ error: 'У вас нет прав на редактирование чужой задачи' });
+  }
 
   const { title, dueDate, assigneeId, isDone } = req.body;
 
   const updated = {
     title: title !== undefined ? title.trim() : current.title,
     dueDate: dueDate !== undefined ? Number(dueDate) : current.dueDate,
-    assigneeId: assigneeId !== undefined ? assigneeId : current.assigneeId,
+    assigneeId: req.user.role === 'boss' ? (assigneeId !== undefined ? assigneeId : current.assigneeId) : current.assigneeId,
     isDone: isDone !== undefined ? (isDone ? 1 : 0) : current.isDone,
   };
 
@@ -389,14 +502,21 @@ app.put('/api/tasks/:id', (req, res) => {
   res.json(parseTaskRow(row));
 });
 
-app.delete('/api/tasks/:id', (req, res) => {
+app.delete('/api/tasks/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
+  const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  if (!current) return res.status(404).json({ error: 'Задача не найдена' });
+
+  if (req.user.role !== 'boss' && current.assigneeId !== req.user.id) {
+    return res.status(403).json({ error: 'У вас нет прав на удаление чужой задачи' });
+  }
+
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   res.json({ success: true, id });
 });
 
 // ==================== RESET & BACKUP ====================
-app.get('/api/backup', (req, res) => {
+app.get('/api/backup', authenticateToken, requireBoss, (req, res) => {
   const clients = db.prepare('SELECT * FROM clients').all();
   const requests = db.prepare('SELECT * FROM requests').all().map(parseRequestRow);
   const tasks = db.prepare('SELECT * FROM tasks').all().map(parseTaskRow);
@@ -405,7 +525,7 @@ app.get('/api/backup', (req, res) => {
   res.json({ clients, requests, tasks, users });
 });
 
-app.post('/api/reset', (req, res) => {
+app.post('/api/reset', authenticateToken, requireBoss, (req, res) => {
   db.exec(`
     DELETE FROM tasks;
     DELETE FROM requests;
@@ -484,10 +604,11 @@ const distPath = path.resolve(__dirname, '../dist');
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.resolve(distPath, 'index.html'));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.resolve(distPath, 'index.html'));
     }
+    next();
   });
 }
 
